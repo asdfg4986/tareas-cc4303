@@ -91,16 +91,40 @@ if __name__ == "__main__":
         if recv_message:
             # parseamos el mensaje
             parsed_request = parse_HTTP_message(recv_message)
-            print(f'\nRequest parseado:\n{parsed_request}')
 
-            # creamos un nuevo mensaje HTTP a partir del mensaje parseado
-            recreated_request = create_HTTP_message(parsed_request)
-            print(f':\nRequest recreado (bytes):\n{recreated_request}')
+            host_header = parsed_request['headers']['Host']
 
-            response_message = create_HTTP_message(response_dict)
-            print(f'\nResponse (bytes):\n{response_message}')
+            # si el header Host contiene un número de puerto, lo extraemos
+            if ':' in host_header:
+                destiny_host, destiny_port = host_header.split(':')
+                destiny_port = int(destiny_port)
+            # si no, asumimos que el puerto es 80
+            else:
+                destiny_host = host_header
+                destiny_port = 80
 
-            new_socket.send(response_message)
+            # creamos un socket para conectarnos al servidor destino
+            destiny_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            # intentamos conectarnos al servidor destino
+            try:
+                destiny_socket.connect((destiny_host, destiny_port))
+
+                # enviamos la petición al servidor destino
+                destiny_socket.send(recv_message)
+
+                # recibimos la respuesta del servidor destino
+                server_response = destiny_socket.recv(buff_size)
+                if server_response:
+                    print(f'Response crudo:\n{server_response}')
+                    new_socket.send(server_response)
+
+                destiny_socket.close()
+
+            except Exception as e:
+                print(f"Error al conectar con {destiny_host}:{destiny_port}: {e}")
+                new_socket.close()
+                continue
 
         # cerramos la conexión
         new_socket.close()
