@@ -39,6 +39,33 @@ def create_HTTP_message(message_dict: dict) -> bytes:
 
     return http_message
 
+def receive_full_message(sock: socket.socket, buff_size: int) -> bytes:
+    acc = b''
+    while b'\r\n\r\n' not in acc:
+        part = sock.recv(buff_size)
+        if not part:
+            return b''
+        acc += part
+
+    head, body = acc.split(b'\r\n\r\n', 1)
+
+    head_str = head.decode()
+    body_length = 0
+    for line in head_str.split('\r\n'):
+        if line.lower().startswith('content-length:'):
+            body_length = int(line.split(':', 1)[1].strip())
+            break
+
+    while len(body) < body_length:
+        part = sock.recv(buff_size)
+        if not part:
+            break
+        body += part
+
+    return head + b'\r\n\r\n' + body
+
+
+
 if __name__ == "__main__":
     # verificamos que se haya proporcionado un archivo de configuración como argumento
     if len(sys.argv) < 2:
@@ -50,7 +77,7 @@ if __name__ == "__main__":
         config = json.load(f)
 
     # definimos el tamaño del buffer de recepción y la dirección del socket del servidor
-    buff_size = 4096
+    buff_size = 50
     server_socket_address = ('192.168.100.129', 8000)
 
     print('Creando socket - Servidor')
@@ -67,7 +94,7 @@ if __name__ == "__main__":
         new_socket, new_socket_address = server_socket.accept()
 
         # recibimos el mensaje
-        recv_message = new_socket.recv(buff_size)
+        recv_message = receive_full_message(new_socket, buff_size)
 
         print(f'Request crudo:\n{recv_message}')
 
@@ -166,7 +193,7 @@ if __name__ == "__main__":
                 destiny_socket.send(modified_request)
 
                 # recibimos la respuesta del servidor destino
-                server_response = destiny_socket.recv(buff_size)
+                server_response = receive_full_message(destiny_socket, buff_size)
 
                 if server_response:
                     print(f'Response crudo:\n{server_response}')
