@@ -154,12 +154,16 @@ if __name__ == "__main__":
             # creamos un socket para conectarnos al servidor destino
             destiny_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+            parsed_request['headers']['X-ElQuePregunta'] = config["user"]
+
+            modified_request = create_HTTP_message(parsed_request)
+
             # intentamos conectarnos al servidor destino
             try:
                 destiny_socket.connect((destiny_host, destiny_port))
-
+                
                 # enviamos la petición al servidor destino
-                destiny_socket.send(recv_message)
+                destiny_socket.send(modified_request)
 
                 # recibimos la respuesta del servidor destino
                 server_response = destiny_socket.recv(buff_size)
