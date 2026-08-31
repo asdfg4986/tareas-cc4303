@@ -49,8 +49,6 @@ if __name__ == "__main__":
     with open(sys.argv[1], 'r') as f:
         config = json.load(f)
 
-    my_name = config["nombre"]
-
     # definimos el tamaño del buffer de recepción y la dirección del socket del servidor
     buff_size = 4096
     server_socket_address = ('192.168.100.129', 8000)
@@ -73,21 +71,6 @@ if __name__ == "__main__":
 
         print(f'Request crudo:\n{recv_message}')
 
-        html_body = b"<html><body><h1>Hola desde mi proxy en Debian!</h1></body></html>"
-
-        response_dict = {
-            'method': 'HTTP/1.1',
-            'path': '200',
-            'version': 'OK',
-            'headers': {
-                'Content-Type': 'text/html; charset=UTF-8',
-                'Content-Length': str(len(html_body)),
-                'Connection': 'close',
-                'X-ElQuePregunta': my_name
-            },
-            'body': html_body
-        }
-
         if recv_message:
             # parseamos el mensaje
             parsed_request = parse_HTTP_message(recv_message)
@@ -103,6 +86,71 @@ if __name__ == "__main__":
                 destiny_host = host_header
                 destiny_port = 80
 
+            requested_path = parsed_request['path']
+            full_url = destiny_host + requested_path
+
+            if requested_path.endswith('/403.jpg'):
+                try:
+                    with open("403.jpg", "rb") as f:
+                        image_data = f.read()
+                    img_dict = {
+                        'method': 'HTTP/1.1',
+                        'path': '200',
+                        'version': 'OK',
+                        'headers': {
+                            'Content-Type': 'image/jpeg',
+                            'Content-Length': str(len(image_data)),
+                            'Connection': 'close'
+                        },
+                        'body': image_data
+                    }
+
+                    new_socket.send(create_HTTP_message(img_dict))
+                except FileNotFoundError:
+                    error_dict = {
+                        'method': 'HTTP/1.1',
+                        'path': '404',
+                        'version': 'Not Found',
+                        'headers': {'Connection': 'close'},
+                        'body': b''
+                    }
+                    new_socket.send(create_HTTP_message(error_dict))
+
+                new_socket.close()
+                continue
+
+            is_blocked = False
+            # verificamos si la URL está en la lista de bloqueadas
+            for blocked_url in config["blocked"]:
+                if blocked_url in full_url:
+                    is_blocked = True
+                    break
+
+            if is_blocked:
+                print(f"URL bloqueada: {full_url}")
+                html_blocked = (
+                    "<html><head><title>Bloqueado</title></head>"
+                    "<body><h1>Acceso Denegado (403)</h1>"
+                    "<img src='/403.jpg' alt='Gato bloqueador'>"
+                    "</body></html>"
+                ).encode()
+
+                blocked_dict = {
+                    'method': 'HTTP/1.1',
+                    'path': '403',
+                    'version': 'Forbidden',
+                    'headers': {
+                        'Content-Type': 'text/html; charset=UTF-8',
+                        'Content-Length': str(len(html_blocked)),
+                        'Connection': 'close'
+                    },
+                    'body': html_blocked
+                }
+
+                new_socket.send(create_HTTP_message(blocked_dict))
+                new_socket.close()
+                continue
+
             # creamos un socket para conectarnos al servidor destino
             destiny_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -115,6 +163,7 @@ if __name__ == "__main__":
 
                 # recibimos la respuesta del servidor destino
                 server_response = destiny_socket.recv(buff_size)
+
                 if server_response:
                     print(f'Response crudo:\n{server_response}')
                     new_socket.send(server_response)
@@ -123,8 +172,6 @@ if __name__ == "__main__":
 
             except Exception as e:
                 print(f"Error al conectar con {destiny_host}:{destiny_port}: {e}")
-                new_socket.close()
-                continue
 
         # cerramos la conexión
         new_socket.close()
