@@ -153,7 +153,7 @@ if __name__ == "__main__":
                         },
                         'body': image_data
                     }
-                    new_socket.sendall(create_HTTP_message(img_dict))
+                    new_socket.send(create_HTTP_message(img_dict))
                 except FileNotFoundError:
                     error_dict = {
                         'method': 'HTTP/1.1',
@@ -162,7 +162,7 @@ if __name__ == "__main__":
                         'headers': {'Connection': 'close'},
                         'body': b''
                     }
-                    new_socket.sendall(create_HTTP_message(error_dict))
+                    new_socket.send(create_HTTP_message(error_dict))
 
                 new_socket.close()
                 continue # Terminamos con este cliente y volvemos al inicio del while
@@ -195,7 +195,7 @@ if __name__ == "__main__":
                     },
                     'body': html_blocked
                 }
-                new_socket.sendall(create_HTTP_message(blocked_dict))
+                new_socket.send(create_HTTP_message(blocked_dict))
                 new_socket.close()
                 continue
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
                 destiny_socket.connect((destiny_host, destiny_port))
                 
                 # Enviamos la petición modificada
-                destiny_socket.sendall(modified_request)
+                destiny_socket.send(modified_request)
 
                 # Recibimos la respuesta completa del servidor real
                 server_response = receive_full_message(destiny_socket, buff_size)
@@ -236,7 +236,7 @@ if __name__ == "__main__":
 
                     # Reconstruimos la respuesta final modificada y se la enviamos al navegador del cliente
                     modified_response = create_HTTP_message(parsed_response)
-                    new_socket.sendall(modified_response)
+                    new_socket.send(modified_response)
 
                 destiny_socket.close()
 
