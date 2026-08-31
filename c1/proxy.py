@@ -170,7 +170,23 @@ if __name__ == "__main__":
 
                 if server_response:
                     print(f'Response crudo:\n{server_response}')
-                    new_socket.send(server_response)
+                    parsed_response = parse_HTTP_message(server_response)
+
+                    body_response = parsed_response['body']
+
+                    # verificamos si la respuesta contiene alguna palabra prohibida
+                    for forbidden_word in config["forbidden_words"]:
+                        for word, replacement in forbidden_word.items():
+                            body_response = body_response.replace(word.encode(), replacement.encode())
+
+                    parsed_response['body'] = body_response
+
+                    if 'Content-Length' in parsed_response['headers']:
+                        parsed_response['headers']['Content-Length'] = str(len(body_response))
+
+                    modified_response = create_HTTP_message(parsed_response)
+
+                    new_socket.send(modified_response)
 
                 destiny_socket.close()
 
