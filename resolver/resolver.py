@@ -1,5 +1,33 @@
 import socket
 from dnslib import DNSRecord
+from collections import deque, Counter
+
+class DNSCache:
+
+    def __init__(self):
+        self.record = deque(maxlen=20)  # Almacena las ultimas 20 consultas
+        self.cache = {} # Diccionario para almacenar las respuestas que se usaran para el cache
+
+    def get(self, qname: str) -> bytes:
+        if qname in self.cache:
+            return self.cache[qname]
+        return b""
+
+    def update(self, qname: str, response: bytes):
+        self.record.append(qname)
+
+        counter = Counter(self.record)
+
+        top_3_tuples = counter.most_common(3)
+        top_3_qnames = [t[0] for t in top_3_tuples]
+
+        actual_keys = list(self.cache.keys())
+        for key in actual_keys:
+            if key not in top_3_qnames:
+                del self.cache[key]
+
+        if qname in top_3_qnames:
+            self.cache[qname] = response
 
 def parse_dns_message(data: bytes) -> dict:
     parsed_data = DNSRecord.parse(data)
@@ -17,7 +45,6 @@ def parse_dns_message(data: bytes) -> dict:
     return dns_data
 
 def resolver(query: bytes, ip_address: str = '198.41.0.4', ns_name: str = '.') -> bytes:
-
     dns_data_query = parse_dns_message(query)
     qname = dns_data_query["qname"]
 
@@ -77,6 +104,7 @@ if __name__ == "__main__":
     # Armamos el socket principal que escuchará al navegador
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(server_socket_address)
+    cache = DNSCache()
 
     print('... Esperando clientes')
     try:
@@ -85,12 +113,27 @@ if __name__ == "__main__":
             print(f"Recibido mensaje de {client_address}")
 
             dns_data = parse_dns_message(data)
+            qname = dns_data["qname"]
 
-            response = resolver(data, root_ip)
+            cached_response = cache.get(qname)
+            if cached_response:
+                print(f"(debug) Respuesta en cache para '{qname}'")
 
-            if response:
-                print(f"Enviando respuesta a {client_address}")
-                server_socket.sendto(response, client_address)
+                parsed_response = DNSRecord.parse(cached_response)
+                parsed_query = DNSRecord.parse(data)
+                parsed_response.header.id = parsed_query.header.id
+
+                print(f"Enviando respuesta a {client_address} usando cache")
+                server_socket.sendto(parsed_response.pack(), client_address)
+
+                cache.update(qname, parsed_response.pack())
+            else:
+                response = resolver(data, root_ip)
+
+                if response:
+                    print(f"Enviando respuesta a {client_address}")
+                    server_socket.sendto(response, client_address)
+                    cache.update(qname, response)
 
     except KeyboardInterrupt:
         print("\nCerrando servidor...")
