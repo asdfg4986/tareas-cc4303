@@ -82,7 +82,7 @@ def resolver(query: bytes, ip_address: str = '198.41.0.4', ns_name: str = '.') -
                 return resolver(query, ns_ip, ns_domain)
 
         query_for_ns = DNSRecord.question(ns_domain)
-        ns_response = resolver(query_for_ns.pack(), ip_address)
+        ns_response = resolver(query_for_ns.pack(), '198.41.0.4', '.')
 
         if ns_response:
             ns_dns_data = parse_dns_message(ns_response)
@@ -127,6 +127,7 @@ if __name__ == "__main__":
                 server_socket.sendto(parsed_response.pack(), client_address)
 
                 cache.update(qname, parsed_response.pack())
+                
             else:
                 response = resolver(data, root_ip)
 
