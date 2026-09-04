@@ -113,136 +113,145 @@ if __name__ == "__main__":
     server_socket.listen(3)
 
     print('... Esperando clientes')
-    while True:
-        # Aceptamos la conexión del cliente (Navegador o curl)
-        new_socket, new_socket_address = server_socket.accept()
+    try:
+        while True:
+            # Aceptamos la conexión del cliente (Navegador o curl)
+            new_socket, new_socket_address = server_socket.accept()
+            print(f"Conexión establecida con {new_socket_address}")
 
-        # Usamos nuestra función robusta para garantizar la lectura completa
-        recv_message = receive_full_message(new_socket, buff_size)
+            # Usamos nuestra función robusta para garantizar la lectura completa
+            recv_message = receive_full_message(new_socket, buff_size)
+            print("Recibido mensaje")
 
-        if recv_message:
-            # Parseamos la petición del cliente para entender qué quiere
-            parsed_request = parse_HTTP_message(recv_message)
-            host_header = parsed_request['headers']['Host']
+            if recv_message:
+                # Parseamos la petición del cliente para entender qué quiere
+                parsed_request = parse_HTTP_message(recv_message)
+                host_header = parsed_request['headers']['Host']
 
-            # Resolvemos la IP/Dominio y el Puerto de destino basándonos en el header 'Host'
-            if ':' in host_header:
-                destiny_host, destiny_port = host_header.split(':')
-                destiny_port = int(destiny_port)
-            else:
-                destiny_host = host_header
-                destiny_port = 80
+                # Resolvemos la IP/Dominio y el Puerto de destino basándonos en el header 'Host'
+                if ':' in host_header:
+                    destiny_host, destiny_port = host_header.split(':')
+                    destiny_port = int(destiny_port)
+                else:
+                    destiny_host = host_header
+                    destiny_port = 80
 
-            requested_path = parsed_request['path']
-            full_url = destiny_host + requested_path
+                requested_path = parsed_request['path']
+                full_url = destiny_host + requested_path
 
-            # -- BLOQUE 1: Intercepción de la Imagen --
-            # Si el navegador pide específicamente la imagen del bloqueo, la servimos desde local
-            if requested_path.endswith('/403.jpg'):
-                try:
-                    with open("403.jpg", "rb") as f:
-                        image_data = f.read()
-                    img_dict = {
+                # -- BLOQUE 1: Intercepción de la Imagen --
+                # Si el navegador pide específicamente la imagen del bloqueo, la servimos desde local
+                if requested_path.endswith('/403.jpg'):
+                    try:
+                        with open("403.jpg", "rb") as f:
+                            image_data = f.read()
+                        img_dict = {
+                            'method': 'HTTP/1.1',
+                            'path': '200',
+                            'version': 'OK',
+                            'headers': {
+                                'Content-Type': 'image/jpeg',
+                                'Content-Length': str(len(image_data)),
+                                'Connection': 'close' # Evitamos que el navegador se quede esperando
+                            },
+                            'body': image_data
+                        }
+                        new_socket.send(create_HTTP_message(img_dict))
+                    except FileNotFoundError:
+                        error_dict = {
+                            'method': 'HTTP/1.1',
+                            'path': '404',
+                            'version': 'Not Found',
+                            'headers': {'Connection': 'close'},
+                            'body': b''
+                        }
+                        new_socket.send(create_HTTP_message(error_dict))
+
+                    new_socket.close()
+                    continue # Terminamos con este cliente y volvemos al inicio del while
+
+                # -- BLOQUE 2: Verificación de Sitios Prohibidos --
+                is_blocked = False
+                for blocked_url in config["blocked"]:
+                    if blocked_url in full_url:
+                        is_blocked = True
+                        break
+
+                # Si está bloqueado, inyectamos el HTML con el código 403 y cerramos
+                if is_blocked:
+                    print(f"URL bloqueada: {full_url}")
+                    html_blocked = (
+                        "<html><head><title>Bloqueado</title></head>"
+                        "<body><h1>Acceso Denegado (403)</h1>"
+                        "<img src='/403.jpg' alt='Gato bloqueador'>"
+                        "</body></html>"
+                    ).encode()
+
+                    blocked_dict = {
                         'method': 'HTTP/1.1',
-                        'path': '200',
-                        'version': 'OK',
+                        'path': '403',
+                        'version': 'Forbidden',
                         'headers': {
-                            'Content-Type': 'image/jpeg',
-                            'Content-Length': str(len(image_data)),
-                            'Connection': 'close' # Evitamos que el navegador se quede esperando
+                            'Content-Type': 'text/html; charset=UTF-8',
+                            'Content-Length': str(len(html_blocked)),
+                            'Connection': 'close'
                         },
-                        'body': image_data
+                        'body': html_blocked
                     }
-                    new_socket.send(create_HTTP_message(img_dict))
-                except FileNotFoundError:
-                    error_dict = {
-                        'method': 'HTTP/1.1',
-                        'path': '404',
-                        'version': 'Not Found',
-                        'headers': {'Connection': 'close'},
-                        'body': b''
-                    }
-                    new_socket.send(create_HTTP_message(error_dict))
+                    print(f"Enviando página de bloqueo a {new_socket_address}")
+                    new_socket.send(create_HTTP_message(blocked_dict))
+                    new_socket.close()
+                    continue
 
-                new_socket.close()
-                continue # Terminamos con este cliente y volvemos al inicio del while
+                # -- BLOQUE 3: Proxy Transparente y Modificación de Paquetes --
+                destiny_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-            # -- BLOQUE 2: Verificación de Sitios Prohibidos --
-            is_blocked = False
-            for blocked_url in config["blocked"]:
-                if blocked_url in full_url:
-                    is_blocked = True
-                    break
+                # Inyectamos nuestro header personalizado leyendo el nombre desde el JSON
+                parsed_request['headers']['X-ElQuePregunta'] = config["user"]
+                modified_request = create_HTTP_message(parsed_request)
 
-            # Si está bloqueado, inyectamos el HTML con el código 403 y cerramos
-            if is_blocked:
-                print(f"URL bloqueada: {full_url}")
-                html_blocked = (
-                    "<html><head><title>Bloqueado</title></head>"
-                    "<body><h1>Acceso Denegado (403)</h1>"
-                    "<img src='/403.jpg' alt='Gato bloqueador'>"
-                    "</body></html>"
-                ).encode()
+                try:
+                    # Conectamos con el servidor en internet
+                    destiny_socket.connect((destiny_host, destiny_port))
 
-                blocked_dict = {
-                    'method': 'HTTP/1.1',
-                    'path': '403',
-                    'version': 'Forbidden',
-                    'headers': {
-                        'Content-Type': 'text/html; charset=UTF-8',
-                        'Content-Length': str(len(html_blocked)),
-                        'Connection': 'close'
-                    },
-                    'body': html_blocked
-                }
-                new_socket.send(create_HTTP_message(blocked_dict))
-                new_socket.close()
-                continue
+                    # Enviamos la petición modificada
+                    destiny_socket.send(modified_request)
 
-            # -- BLOQUE 3: Proxy Transparente y Modificación de Paquetes --
-            destiny_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    # Recibimos la respuesta completa del servidor real
+                    server_response = receive_full_message(destiny_socket, buff_size)
 
-            # Inyectamos nuestro header personalizado leyendo el nombre desde el JSON
-            parsed_request['headers']['X-ElQuePregunta'] = config["user"]
-            modified_request = create_HTTP_message(parsed_request)
+                    if server_response:
 
-            try:
-                # Conectamos con el servidor en internet
-                destiny_socket.connect((destiny_host, destiny_port))
-                
-                # Enviamos la petición modificada
-                destiny_socket.send(modified_request)
+                        # Parseamos la respuesta para poder modificar su HTML
+                        parsed_response = parse_HTTP_message(server_response)
+                        body_response = parsed_response['body']
 
-                # Recibimos la respuesta completa del servidor real
-                server_response = receive_full_message(destiny_socket, buff_size)
+                        # Buscamos y reemplazamos cada palabra prohibida según el JSON
+                        for forbidden_word in config["forbidden_words"]:
+                            for word, replacement in forbidden_word.items():
+                                body_response = body_response.replace(word.encode(), replacement.encode())
 
-                if server_response:
-                    
-                    # Parseamos la respuesta para poder modificar su HTML
-                    parsed_response = parse_HTTP_message(server_response)
-                    body_response = parsed_response['body']
+                        # Guardamos el cuerpo modificado
+                        parsed_response['body'] = body_response
 
-                    # Buscamos y reemplazamos cada palabra prohibida según el JSON
-                    for forbidden_word in config["forbidden_words"]:
-                        for word, replacement in forbidden_word.items():
-                            body_response = body_response.replace(word.encode(), replacement.encode())
+                        # Recalculamos el Content-Length ya que el tamaño del HTML cambió por el reemplazo
+                        if 'Content-Length' in parsed_response['headers']:
+                            parsed_response['headers']['Content-Length'] = str(len(body_response))
 
-                    # Guardamos el cuerpo modificado
-                    parsed_response['body'] = body_response
+                        # Reconstruimos la respuesta final modificada y se la enviamos al navegador del cliente
+                        modified_response = create_HTTP_message(parsed_response)
+                        print(f"Enviando respuesta modificada a {new_socket_address}")
+                        new_socket.send(modified_response)
 
-                    # Recalculamos el Content-Length ya que el tamaño del HTML cambió por el reemplazo
-                    if 'Content-Length' in parsed_response['headers']:
-                        parsed_response['headers']['Content-Length'] = str(len(body_response))
+                    destiny_socket.close()
 
-                    # Reconstruimos la respuesta final modificada y se la enviamos al navegador del cliente
-                    modified_response = create_HTTP_message(parsed_response)
-                    new_socket.send(modified_response)
+                except Exception as e:
+                    print(f"Error al conectar con {destiny_host}:{destiny_port}: {e}")
 
-                destiny_socket.close()
+    except KeyboardInterrupt:
+        print("\nCerrando servidor...")
 
-            except Exception as e:
-                print(f"Error al conectar con {destiny_host}:{destiny_port}: {e}")
-
+    finally:
         # Cerramos siempre la conexión con el cliente al finalizar
         new_socket.close()
-        print(f"conexión con {new_socket_address} ha sido cerrada\n")
+        print(f"Conexión con {new_socket_address} ha sido cerrada\n")
