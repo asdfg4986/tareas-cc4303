@@ -16,7 +16,13 @@ def parse_dns_message(data: bytes) -> dict:
 
     return dns_data
 
-def resolver(query: bytes, ip_address: str = '198.41.0.4') -> bytes:
+def resolver(query: bytes, ip_address: str = '198.41.0.4', ns_name: str = '.') -> bytes:
+
+    dns_data_query = parse_dns_message(query)
+    qname = dns_data_query["qname"]
+
+    print(f"(debug) Consultando '{qname}' a '{ns_name}' con direccion IP '{ip_address}'")
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.sendto(query, (ip_address, 53))
@@ -46,7 +52,7 @@ def resolver(query: bytes, ip_address: str = '198.41.0.4') -> bytes:
         for ar_rr in dns_data["additional"]:
             if str(ar_rr.rname) == ns_domain and ar_rr.rtype == 1: # Tipo 1 'A' (IPv4)
                 ns_ip = str(ar_rr.rdata)
-                return resolver(query, ns_ip)
+                return resolver(query, ns_ip, ns_domain)
 
         query_for_ns = DNSRecord.question(ns_domain)
         ns_response = resolver(query_for_ns.pack(), ip_address)
@@ -56,13 +62,14 @@ def resolver(query: bytes, ip_address: str = '198.41.0.4') -> bytes:
             for rr in ns_dns_data["answer"]:
                 if rr.rtype == 1: # Tipo 1 'A' (IPv4)
                     ns_ip = str(rr.rdata)
-                    return resolver(query, ns_ip)
+                    return resolver(query, ns_ip, ns_domain)
 
     return b"" # Ignorar cualquier otro tipo de respuesta
 
         
 if __name__ == "__main__":
     root_ip = '198.41.0.4'
+    root_name = '.'
     buff_size = 4096
     server_socket_address = ('192.168.100.129', 8000)
 
