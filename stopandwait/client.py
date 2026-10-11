@@ -2,39 +2,29 @@ import socket
 from sockettcp import SocketTCP
 
 if __name__ == "__main__":
-    # Configuración
-    IP = "127.0.0.1"
-    PORT = 8000
-
-    # Solicitar la ruta del archivo
-    file_path = input("Ingrese la ruta del archivo a enviar: ")
-
-    # Creación del socket UDP
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    actual_seq_num = 0
-
     try:
-        with open(file_path, "rb") as f:
-            while True:
-                # Leer el archivo en trozos de 16 bytes
-                piece = f.read(16)
+        address = ("127.0.0.1", 8000)
+        # CLIENT
+        client_socketTCP = SocketTCP()
+        print(f"Conectando al servidor {address}...")
+        client_socketTCP.connect(address)
+        print("\nConexión exitosa. Enviando tests...\n")
 
-                if not piece:
-                    break # Fin del archivo
+        # test 1: Enviar exactamente 16 bytes
+        message = "Mensje de len=16".encode()
+        client_socketTCP.send(message)
+        print("Test 1 enviado.")
 
-                # Empaquetamos el trozo con nuestro header
-                segment = SocketTCP.create_segment(
-                    seq=actual_seq_num, 
-                    syn=False, 
-                    ack=False, 
-                    fin=False, 
-                    data=piece
-                )
+        # test 2: Enviar 19 bytes (requiere fragmentación)
+        message = "Mensaje de largo 19".encode()
+        client_socketTCP.send(message)
+        print("Test 2 enviado.")
 
-                sock.sendto(segment, (IP, PORT))
-                actual_seq_num += 1
+        # test 3: Enviar 19 bytes (el servidor lo leerá en dos partes)
+        message = "Mensaje de largo 19".encode()
+        client_socketTCP.send(message)
+        print("Test 3 enviado.")
 
-        print(f"\nArchivo '{file_path}' enviado en trozos de 16 bytes.")
-    except FileNotFoundError:
-        print("Error: No se encontró el archivo. Verifica la ruta.")
+        client_socketTCP.close()
+    except KeyboardInterrupt:
+        print("\nCerrando cliente...")
