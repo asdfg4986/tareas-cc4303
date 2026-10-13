@@ -3,44 +3,47 @@ from sockettcp import SocketTCP
 
 if __name__ == "__main__":
     try:
-        address = ("127.0.0.1", 8000)
-        
-        # SERVER
-        server_socketTCP = SocketTCP()
-        server_socketTCP.bind(address)
-        print(f"Servidor escuchando en {address}...")
-        
-        connection_socketTCP, new_address = server_socketTCP.accept()
-        print(f"\nConexión establecida con {new_address}. Iniciando tests...\n")
-        
-        # test 1: Recibir exactamente 16 bytes
-        buff_size = 16
-        full_message = connection_socketTCP.recv(buff_size)
-        print("Test 1 received:", full_message.decode(errors='replace'))
-        if full_message == "Mensje de len=16".encode(): 
-            print("Test 1: Passed\n")
-        else: 
-            print("Test 1: Failed\n")
-        
-        # test 2: Recibir 19 bytes (mayor al tamaño máximo de paquete)
-        buff_size = 19
-        full_message = connection_socketTCP.recv(buff_size)
-        print("Test 2 received:", full_message.decode(errors='replace'))
-        if full_message == "Mensaje de largo 19".encode(): 
-            print("Test 2: Passed\n")
-        else: 
-            print("Test 2: Failed\n")
-        
-        # test 3: Recibir un mensaje en dos llamadas separadas (prueba el unprocessed_data)
-        buff_size = 14
-        message_part_1 = connection_socketTCP.recv(buff_size)
-        message_part_2 = connection_socketTCP.recv(buff_size)
-        print("Test 3 received:", (message_part_1 + message_part_2).decode(errors='replace'))
-        if (message_part_1 + message_part_2) == "Mensaje de largo 19".encode(): 
-            print("Test 3: Passed\n")
-        else: 
-            print("Test 3: Failed\n")
+        puerto = 8000
+        server_socket = SocketTCP()
+        server_socket.bind(("127.0.0.1", puerto))
 
-        connection_socketTCP.recv_close()
+        print(f"Servidor escuchando en el puerto {puerto}...")
+        conn, addr = server_socket.accept()
+        print(f"Conexión establecida con {addr}. Iniciando pruebas...\n")
+
+        # --- Test 1: Lectura exacta ---
+        full_message = conn.recv(16)
+        print("Test 1 recibido:", full_message.decode(errors='replace'))
+        if full_message == b"Mensje de len=16":
+            print("Test 1: Superado\n")
+
+        # --- Test 2: Lectura mayor al tamaño máximo de paquete ---
+        full_message = conn.recv(19)
+        print("Test 2 recibido:", full_message.decode(errors='replace'))
+        if full_message == b"Mensaje de largo 19":
+            print("Test 2: Superado\n")
+
+        # --- Test 3: Lectura dividida (Prueba de unprocessed_data) ---
+        buff_size = 14
+        message_part_1 = conn.recv(buff_size)
+        message_part_2 = conn.recv(buff_size)
+        print("Test 3 recibido:", (message_part_1 + message_part_2).decode(errors='replace'))
+        if (message_part_1 + message_part_2) == b"Mensaje de largo 19":
+            print("Test 3: Superado\n")
+
+        # --- Test 4: Prueba específica de 2n bytes (Archivo desde stdin) ---
+        n = 19
+        print(f"Test 4: Esperando archivo (2 llamadas consecutivas de recv({n}))...")
+        mitad_1 = conn.recv(n)
+        print(f"Test 4 - Bloque 1 ({len(mitad_1)} bytes): {mitad_1.decode(errors='replace')}")
+
+        mitad_2 = conn.recv(n)
+        print(f"Test 4 - Bloque 2 ({len(mitad_2)} bytes): {mitad_2.decode(errors='replace')}")
+
+        mensaje_completo = mitad_1 + mitad_2
+        print(f"Test 4 completado. Archivo final rearmado:\n{mensaje_completo.decode(errors='replace')}")
+
+        print("\nTodas las pruebas recibidas. Esperando cierre de conexión...")
+        conn.recv_close()
     except KeyboardInterrupt:
         print("\nCerrando servidor...")

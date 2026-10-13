@@ -1,30 +1,34 @@
 import socket
+import sys
 from sockettcp import SocketTCP
 
 if __name__ == "__main__":
     try:
-        address = ("127.0.0.1", 8000)
-        # CLIENT
-        client_socketTCP = SocketTCP()
-        print(f"Conectando al servidor {address}...")
-        client_socketTCP.connect(address)
-        print("\nConexión exitosa. Enviando tests...\n")
+        if len(sys.argv) != 3:
+            print("Uso correcto: python3 cliente.py <ip> <puerto> < archivo.txt")
+            sys.exit(1)
 
-        # test 1: Enviar exactamente 16 bytes
-        message = "Mensje de len=16".encode()
-        client_socketTCP.send(message)
-        print("Test 1 enviado.")
+        ip = sys.argv[1]
+        puerto = int(sys.argv[2])
+        datos_archivo = sys.stdin.buffer.read()
 
-        # test 2: Enviar 19 bytes (requiere fragmentación)
-        message = "Mensaje de largo 19".encode()
-        client_socketTCP.send(message)
-        print("Test 2 enviado.")
+        client_socket = SocketTCP()
+        print(f"Conectando a {ip}:{puerto}...")
+        client_socket.connect((ip, puerto))
 
-        # test 3: Enviar 19 bytes (el servidor lo leerá en dos partes)
-        message = "Mensaje de largo 19".encode()
-        client_socketTCP.send(message)
-        print("Test 3 enviado.")
+        print("\nEjecutando Test 1 (16 bytes)...")
+        client_socket.send("Mensje de len=16".encode())
 
-        client_socketTCP.close()
+        print("\nEjecutando Test 2 (19 bytes, un solo envío)...")
+        client_socket.send("Mensaje de largo 19".encode())
+
+        print("\nEjecutando Test 3 (19 bytes, lectura dividida)...")
+        client_socket.send("Mensaje de largo 19".encode())
+
+        print(f"\nEjecutando Test 4 (Archivo de texto de {len(datos_archivo)} bytes)...")
+        client_socket.send(datos_archivo)
+
+        print("\nTodos los tests enviados. Iniciando cierre...")
+        client_socket.close()
     except KeyboardInterrupt:
         print("\nCerrando cliente...")

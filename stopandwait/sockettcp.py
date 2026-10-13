@@ -213,23 +213,40 @@ class SocketTCP:
         print("\nHost A Iniciando cierre de conexión...")
 
         fin_seg = self.create_segment(self.seq_num, syn=False, ack=False, fin=True, data=b'')
-        self.sock.sendto(fin_seg, self.dest_addr)
-        print(f"Enviado FIN con seq={self.seq_num}")
 
-        # Esperar ACK + FIN del Host B
-        while True:
-            seg, _ = self.sock.recvfrom(1024)
-            seq, syn, ack, fin, _ = self.parse_segment(seg)
+        self.sock.settimeout(1.0)  # Establecer un tiempo de espera para el ACK + FIN
+        timeouts_count = 0
 
-            if fin and ack and seq == self.seq_num + 1:
-                print(f"Recibido FIN+ACK con seq={seq}. Enviando ACK final...")
-                self.seq_num = seq + 1
-                break
-
-        # Enviar ACK final al Host B
-        ack_seg = self.create_segment(self.seq_num, syn=False, ack=True, fin=False, data=b'')
-        self.sock.sendto(ack_seg, self.dest_addr)
-        print("Enviado ACK final. Cierre de conexión completo.")
+        # 1 y 2. Enviar FIN y esperar FIN+ACK (con hasta 3 reintentos)
+        while timeouts_count < 3:
+            self.sock.sendto(fin_seg, self.dest_addr)
+            try:
+                seg, _ = self.sock.recvfrom(1024)
+                seq, _, ack, fin, _ = self.parse_segment(seg)
+                
+                if fin and ack and seq == self.seq_num + 1:
+                    print(f"Recibido FIN+ACK con seq={seq}")
+                    self.seq_num = seq + 1
+                    break
+            except socket.timeout:
+                timeouts_count += 1
+                print(f"Timeout esperando FIN+ACK (intento {timeouts_count}/3)")
+                
+        if timeouts_count == 3:
+            print("Se alcanzó el límite de timeouts. Forzando cierre.")
+        else:
+            # 3. Enviar ACK final 3 veces seguidas (como pide la tarea)
+            ack_seg = self.create_segment(self.seq_num, syn=False, ack=True, fin=False, data=b'')
+            print(f"Enviando ráfaga de 3 ACKs finales...")
+            for _ in range(3):
+                self.sock.sendto(ack_seg, self.dest_addr)
+                try:
+                    # Esperamos un momento entre envíos imitando un pequeño delay
+                    self.sock.recvfrom(1024) 
+                except socket.timeout:
+                    pass
+            print("ACKs enviados. Conexión cerrada limpiamente.")
+            
         self.sock.close()
 
     def recv_close(self) -> None:
@@ -240,23 +257,37 @@ class SocketTCP:
             seg, _ = self.sock.recvfrom(1024)
             seq, syn, ack, fin, _ = self.parse_segment(seg)
 
-            if fin and not ack and seq == self.seq_num:
+            if fin and not ack and not syn and seq == self.seq_num:
                 print(f"Recibido FIN con seq={seq}. Enviando FIN + ACK...")
                 self.seq_num += 1
                 break
 
+            elif seq < self.seq_num:
+                print(f"Recibido segmento duplicado con seq={seq}, reenviando ACK...")
+                ack_seg = self.create_segment(self.seq_num, syn=False, ack=True, fin=False, data=b'')
+                self.sock.sendto(ack_seg, self.dest_addr)
+
         # Enviar ACK + FIN al Host A
-        ack_seg = self.create_segment(self.seq_num, syn=False, ack=True, fin=True, data=b'')
-        self.sock.sendto(ack_seg, self.dest_addr)
-        print(f"Enviado FIN + ACK con seq={self.seq_num}")
-
-        # Esperar ACK final del Host A
-        while True:
-            seg, _ = self.sock.recvfrom(1024)
-            seq, syn, ack, fin, _ = self.parse_segment(seg)
-
-            if ack and not syn and not fin and seq == self.seq_num + 1:
-                print(f"Recibido ACK final con seq={seq}. Cierre de conexión completo.")
-                break
-
+        fin_ack_seg = self.create_segment(self.seq_num, syn=False, ack=True, fin=True, data=b'')
+        
+        self.sock.settimeout(1.0)
+        timeouts_count = 0
+        
+        # 3. Esperar ACK final con hasta 3 timeouts
+        while timeouts_count < 3:
+            self.sock.sendto(fin_ack_seg, self.dest_addr)
+            try:
+                seg, _ = self.sock.recvfrom(1024)
+                seq, syn, ack, fin, _ = self.parse_segment(seg)
+                
+                if ack and not fin and not syn and seq == self.seq_num + 1:
+                    print(f"Recibido ACK final con seq={seq}. Cierre completo.")
+                    break
+            except socket.timeout:
+                timeouts_count += 1
+                print(f"Timeout esperando ACK final (intento {timeouts_count}/3)")
+                
+        if timeouts_count == 3:
+            print("Se alcanzó límite de timeouts. Asumiendo desconexión del cliente.")
+            
         self.sock.close()
